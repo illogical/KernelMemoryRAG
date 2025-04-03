@@ -2,9 +2,6 @@
 using KernelMemoryRAG.Services;
 using KernelMemoryRAG.Utilities;
 using Microsoft.Extensions.Configuration;
-using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.AI;
-using Microsoft.KernelMemory.AI.Ollama;
 
 namespace KernelMemoryRAG;
 
@@ -14,37 +11,26 @@ public class Program
     {
         try
         {
-            var ollamaConfig = new OllamaConfig
-            {
-                Endpoint = "http://localhost:11434",
-                TextModel = new OllamaModelConfig("phi4"),
-                EmbeddingModel = new OllamaModelConfig("nomic-embed-text")
-            };
-
-            var memory = new KernelMemoryBuilder()
-                .WithOllamaTextGeneration(ollamaConfig, new CL100KTokenizer())
-                .WithOllamaTextEmbeddingGeneration(ollamaConfig, new CL100KTokenizer())
+            // Load configuration
+            var config = new ConfigurationBuilder()
+                .AddJsonFile("appsettings.json", optional: false)
+                .AddEnvironmentVariables()
                 .Build();
 
+            var appSettings = config.GetSection("AppSettings").Get<AppSettings>() ?? new AppSettings();
 
-            string directoryPath = @"C:\SynologyDrive\Drive\Documents\AI Training\";//args[0];
+            // Initialize memory service
+            ConsoleHelper.WriteInfo("Initializing Kernel Memory...");
+            var memoryService = new MemoryService(appSettings);
+            ConsoleHelper.WriteSuccess("Kernel Memory initialized successfully.");
+            string directoryPath = appSettings.DocumentFolderPath;
 
             // Validate directory path
-            if (!Directory.Exists(directoryPath))
+            if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
             {
                 ConsoleHelper.WriteError($"Directory not found: {directoryPath}");
                 return;
             }
-
-            // Load configuration
-            var config = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: true)
-                .AddEnvironmentVariables()
-                .Build();
-
-            var appSettings = new AppSettings();
-            config.GetSection("AppSettings").Bind(appSettings);
-
 
             // Process documents
             ConsoleHelper.WriteInfo($"Processing documents from: {directoryPath}");
@@ -58,52 +44,44 @@ public class Program
 
             // Display document information
             Console.WriteLine("\nDocuments to process:");
-            ConsoleHelper.WriteInfo("Starting document import...");
             foreach (var file in supportedFiles)
             {
-                try
-                {
-                    Console.WriteLine($"- {Path.GetFileName(file)} ({DocumentProcessor.GetFileType(file)}, {DocumentProcessor.GetFileSizeFormatted(file)})");
-                    ConsoleHelper.WriteInfo($"Importing: {Path.GetFileName(file)}");
-                    await memory.ImportDocumentAsync(file, documentId: Path.GetFileNameWithoutExtension(file.Replace(" ", "_")), index: Constants.Contexts.GameHistory);
-                    ConsoleHelper.WriteSuccess($"Successfully imported: {Path.GetFileName(file)}");
-                }
-                catch (Exception ex)
-                {
-                    ConsoleHelper.WriteError($"Error importing {Path.GetFileName(file)}: {ex.Message}");
-                }
+                Console.WriteLine($"- {Path.GetFileName(file)} ({DocumentProcessor.GetFileType(file)}, {DocumentProcessor.GetFileSizeFormatted(file)})");
             }
+            Console.WriteLine();
 
+            // Import documents
+            ConsoleHelper.WriteInfo("Starting document import...");
+            await memoryService.ImportDocumentsFromDirectoryAsync(directoryPath, Constants.Contexts.GameHistory);
             ConsoleHelper.WriteSuccess("Document import completed.");
             Console.WriteLine();
 
-            var answer = await memory.AskAsync("What games did I most often mention as 'Itching to Play'?", index: Constants.Contexts.GameHistory);
+            // Initial question
+            string initialQuestion = "What games did I most often mention as 'Itching to Play'?";
+            string answer = await memoryService.AskQuestionAsync(initialQuestion, Constants.Contexts.GameHistory);
             Console.WriteLine("-------------------");
-            Console.WriteLine(answer.Question);
-            Console.WriteLine(answer.Result);
+            Console.WriteLine(initialQuestion);
+            Console.WriteLine(answer);
             Console.WriteLine("-------------------");
             Console.WriteLine("Press enter to exit. Otherwise, type a new question.");
 
-
+            // Interactive Q&A loop
             string? nextQuestion;
-
             do
             {
                 Console.Write("> ");
                 nextQuestion = Console.ReadLine();
 
-                if(string.IsNullOrEmpty(nextQuestion))
+                if (string.IsNullOrEmpty(nextQuestion))
                     break;
 
-                answer = await memory.AskAsync(nextQuestion, index: Constants.Contexts.GameHistory);
+                answer = await memoryService.AskQuestionAsync(nextQuestion, Constants.Contexts.GameHistory);
                 Console.WriteLine("-------------------");
-                Console.WriteLine(answer.Question);
-                Console.WriteLine(answer.Result);
+                Console.WriteLine(nextQuestion);
+                Console.WriteLine(answer);
                 Console.WriteLine("-------------------");
             }
-            while(!string.IsNullOrEmpty(nextQuestion));
-            
-
+            while (!string.IsNullOrEmpty(nextQuestion));
         }
         catch (Exception ex)
         {
@@ -112,3 +90,4 @@ public class Program
         }
     }
 }
+

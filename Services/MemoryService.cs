@@ -1,4 +1,6 @@
 using Microsoft.KernelMemory;
+using Microsoft.KernelMemory.AI;
+using Microsoft.KernelMemory.AI.Ollama;
 using Microsoft.SemanticKernel;
 using KernelMemoryRAG.Models;
 using KernelMemoryRAG.Utilities;
@@ -13,29 +15,51 @@ public class MemoryService
     public MemoryService(AppSettings settings)
     {
         ConsoleHelper.WriteInfo($"Using Ollama service at {settings.OllamaEndpoint}");
-        
-        // Configure Kernel Memory with default settings
-        // This will use in-memory storage and simple text processing
-        _memory = new KernelMemoryBuilder().Build();
 
+        var endpoint = settings.OllamaEndpoint ?? "http://localhost:11434/v1";
+        var textModelId = settings.OllamaModelId ?? "phi4";
+        var embeddingModelId = settings.OllamaEmbeddingModelId ?? "nomic-embed-text";
+
+        // Configure Ollama for Kernel Memory
+        var ollamaConfig = new OllamaConfig
+        {
+            Endpoint = endpoint,
+            TextModel = new OllamaModelConfig(textModelId),
+            EmbeddingModel = new OllamaModelConfig(embeddingModelId)
+        };
+
+        // Build Kernel Memory with Ollama for both text generation and embeddings
+        try
+        {
+            _memory = new KernelMemoryBuilder()
+                .WithOllamaTextGeneration(ollamaConfig, new CL100KTokenizer())
+                .WithOllamaTextEmbeddingGeneration(ollamaConfig, new CL100KTokenizer())
+                .Build();
+
+            ConsoleHelper.WriteSuccess($"Successfully configured Kernel Memory with Ollama");
+            ConsoleHelper.WriteSuccess($"Text model: {textModelId}, Embedding model: {embeddingModelId}");
+        }
+        catch (Exception ex)
+        {
+            ConsoleHelper.WriteError($"Error configuring Kernel Memory with Ollama: {ex.Message}");
+            ConsoleHelper.WriteWarning("Falling back to default in-memory configuration");
+            _memory = new KernelMemoryBuilder().Build();
+        }
         // Create Semantic Kernel instance
         var kernelBuilder = Kernel.CreateBuilder();
 
         // Add Ollama to the kernel
-        var endpoint = settings.OllamaEndpoint ?? "http://localhost:11434";
-        var modelId = settings.OllamaModelId ?? "llama2";
-        
         try
         {
 #pragma warning disable SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            kernelBuilder.AddOllamaChatCompletion(modelId, new Uri(endpoint));
+            kernelBuilder.AddOllamaChatCompletion(textModelId, new Uri(endpoint));
 #pragma warning restore SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            ConsoleHelper.WriteSuccess($"Successfully configured Ollama with model: {modelId}");
+            ConsoleHelper.WriteSuccess($"Successfully configured Semantic Kernel with Ollama model: {textModelId}");
         }
         catch (Exception ex)
         {
-            ConsoleHelper.WriteError($"Error configuring Ollama: {ex.Message}");
-            ConsoleHelper.WriteWarning("Continuing with limited functionality. RAG may not work properly.");
+            ConsoleHelper.WriteError($"Error configuring Semantic Kernel with Ollama: {ex.Message}");
+            ConsoleHelper.WriteWarning("Continuing with limited functionality. Some features may not work properly.");
         }
 
         // Build the kernel
@@ -60,7 +84,7 @@ public class MemoryService
             try
             {
                 ConsoleHelper.WriteInfo($"Importing: {Path.GetFileName(file)}");
-                await _memory.ImportDocumentAsync(file, documentId: Path.GetFileNameWithoutExtension(file), index: indexName);
+                await _memory.ImportDocumentAsync(file, documentId: Path.GetFileNameWithoutExtension(file.Replace(" ", "_")), index: indexName);
                 ConsoleHelper.WriteSuccess($"Successfully imported: {Path.GetFileName(file)}");
             }
             catch (Exception ex)
@@ -95,3 +119,4 @@ public class MemoryService
         return _memory;
     }
 }
+
