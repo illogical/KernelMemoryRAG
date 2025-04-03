@@ -2,13 +2,9 @@
 using KernelMemoryRAG.Services;
 using KernelMemoryRAG.Utilities;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using Microsoft.KernelMemory;
 using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory.AI.Ollama;
-using Microsoft.KernelMemory.Diagnostics;
-
-
 
 namespace KernelMemoryRAG;
 
@@ -18,16 +14,6 @@ public class Program
     {
         try
         {
-
-            // Create a logger factory
-            using var loggerFactory = LoggerFactory.Create(builder =>
-            {
-                builder
-                    .SetMinimumLevel(LogLevel.Debug)
-                    .AddConsole();
-            });
-
-
             var ollamaConfig = new OllamaConfig
             {
                 Endpoint = "http://localhost:11434",
@@ -79,19 +65,19 @@ public class Program
                 {
                     Console.WriteLine($"- {Path.GetFileName(file)} ({DocumentProcessor.GetFileType(file)}, {DocumentProcessor.GetFileSizeFormatted(file)})");
                     ConsoleHelper.WriteInfo($"Importing: {Path.GetFileName(file)}");
-                    await memory.ImportDocumentAsync(file, documentId: Path.GetFileNameWithoutExtension(file.Replace(" ", "_")));
+                    await memory.ImportDocumentAsync(file, documentId: Path.GetFileNameWithoutExtension(file.Replace(" ", "_")), index: Constants.Contexts.GameHistory);
                     ConsoleHelper.WriteSuccess($"Successfully imported: {Path.GetFileName(file)}");
                 }
                 catch (Exception ex)
                 {
                     ConsoleHelper.WriteError($"Error importing {Path.GetFileName(file)}: {ex.Message}");
                 }
-
             }
+
             ConsoleHelper.WriteSuccess("Document import completed.");
             Console.WriteLine();
 
-            var answer = await memory.AskAsync("What games did I most often mention as 'Itching to Play'?");
+            var answer = await memory.AskAsync("What games did I most often mention as 'Itching to Play'?", index: Constants.Contexts.GameHistory);
             Console.WriteLine("-------------------");
             Console.WriteLine(answer.Question);
             Console.WriteLine(answer.Result);
@@ -109,7 +95,7 @@ public class Program
                 if(string.IsNullOrEmpty(nextQuestion))
                     break;
 
-                answer = await memory.AskAsync(nextQuestion);
+                answer = await memory.AskAsync(nextQuestion, index: Constants.Contexts.GameHistory);
                 Console.WriteLine("-------------------");
                 Console.WriteLine(answer.Question);
                 Console.WriteLine(answer.Result);
@@ -124,7 +110,5 @@ public class Program
             ConsoleHelper.WriteError($"An error occurred: {ex.Message}");
             ConsoleHelper.WriteError(ex.StackTrace ?? string.Empty);
         }
-
-
     }
 }
